@@ -1,0 +1,439 @@
+import pygame
+from behavior_tree.node import NodeStatus
+from util import get_font
+
+class TreeVisualizer:
+    """行为树可视化器，用于在游戏中展示行为树结构"""
+    
+    def __init__(self, screen_width, screen_height):
+        self.screen_width = screen_width
+        self.screen_height = screen_height
+        self.node_width = 140  # 增加节点宽度以容纳中文
+        self.node_height = 40
+        self.horizontal_spacing = 30
+        self.vertical_spacing = 80  # 增加垂直间距
+        
+        # 测试中文字体支持
+        self.init_fonts()
+        
+        # 样式和颜色
+        self.colors = {
+            'background': (30, 30, 30),  # 深灰色背景
+            'node': (150, 150, 150),  # 中灰色节点
+            'sequence': (100, 180, 100),  # 浅绿色序列节点
+            'selector': (180, 100, 100),  # 浅红色选择器节点
+            'active': (0, 200, 0),  # 翠绿色活动节点
+            'inactive': (150, 150, 150),  # 中灰色非活动节点
+            'running': (0, 200, 0),  # 翠绿色运行状态
+            'success': (0, 200, 0),  # 翠绿色成功状态
+            'failure': (200, 0, 0),  # 鲜红色失败状态
+            'connection': (255, 255, 255),  # 纯白色连接线
+            'text': (255, 255, 255)  # 纯白色文字
+        }
+        
+        # 初始化变量
+        self.needs_recalculation = True
+        self.last_tree_hash = None
+        
+    def init_fonts(self):
+        """初始化字体并测试中文支持"""
+        self.font_size = 16  # 增加字体大小
+        
+        # 尝试加载中文字体
+        try:
+            chinese_font = get_font(False, self.font_size)
+            # 测试渲染中文字符
+            test_surface = chinese_font.render("测试", True, (255, 255, 255))
+            # 检查渲染后的表面是否有效
+            if test_surface.get_width() > 0:
+                self.chinese_support = True
+                self.font = chinese_font
+                print("成功加载中文字体用于行为树可视化")
+            else:
+                raise Exception("中文渲染测试失败")
+        except Exception as e:
+            # 如果中文字体测试失败，使用ASCII字体
+            self.chinese_support = False
+            self.font = pygame.font.SysFont('Arial', self.font_size)
+            print(f"行为树可视化器中文支持失败: {e}")
+            
+        print(f"行为树可视化器中文支持: {self.chinese_support}")
+        
+        # 确保树结构信息字体也使用中文字体
+        if self.chinese_support:
+            self.info_font = self.font
+        else:
+            self.info_font = pygame.font.SysFont('Arial', 14)
+    
+    def tree_hash(self, root_node):
+        """计算行为树的哈希值，用于检测变化"""
+        if not root_node:
+            return 0
+            
+        result = hash(root_node.__class__.__name__ + root_node.name)
+        
+        if hasattr(root_node, 'children') and root_node.children:
+            for child in root_node.children:
+                result ^= self.tree_hash(child)
+                
+        return result
+        
+    def calculate_layout(self, root_node):
+        """计算行为树节点的位置和大小"""
+        self.nodes_info = {}
+        
+        # 执行递归布局算法
+        self._calculate_subtree_width(root_node)
+        available_width = self.screen_width
+        self._assign_positions(root_node, 0, available_width, 0)
+        
+        # 计算树哈希值，用于检测变化
+        self.last_tree_hash = self.tree_hash(root_node)
+        self.needs_recalculation = False
+        
+        return self.nodes_info
+        
+    def _calculate_subtree_width(self, node):
+        """计算节点及其子树的宽度"""
+        if not hasattr(node, 'children') or not node.children:
+            # 叶子节点
+            node.subtree_width = self.node_width
+            return self.node_width
+            
+        # 计算所有子节点的总宽度
+        total_width = 0
+        for child in node.children:
+            child_width = self._calculate_subtree_width(child)
+            total_width += child_width + self.horizontal_spacing
+            
+        # 减去最后一个节点之后的额外间距
+        if total_width > 0:
+            total_width -= self.horizontal_spacing
+            
+        # 节点宽度至少要等于自己的宽度
+        node.subtree_width = max(total_width, self.node_width)
+        return node.subtree_width
+        
+    def _assign_positions(self, node, x_start, x_end, level):
+        """为节点分配位置"""
+        x_center = (x_start + x_end) // 2
+        y = level * (self.node_height + self.vertical_spacing) + 50
+        
+        # 保存节点信息
+        self.nodes_info[node] = {
+            'x': x_center - self.node_width // 2,
+            'y': y,
+            'width': self.node_width,
+            'height': self.node_height,
+            'level': level,
+            'center_x': x_center,
+            'center_y': y + self.node_height // 2
+        }
+        
+        if hasattr(node, 'children') and node.children:
+            available_width = x_end - x_start
+            current_x = x_start
+            
+            for child in node.children:
+                # 计算子节点所需宽度占比
+                child_ratio = child.subtree_width / node.subtree_width
+                child_width = int(available_width * child_ratio)
+                
+                # 为子节点分配位置
+                self._assign_positions(child, current_x, current_x + child_width, level + 1)
+                current_x += child_width
+        
+    def render(self, surface, root_node, active_node=None):
+        """渲染行为树"""
+        # 检测树结构是否发生变化，如果变化则重新计算布局
+        current_hash = self.tree_hash(root_node)
+        if current_hash != self.last_tree_hash:
+            self.needs_recalculation = True
+        
+        # 确保节点布局已计算
+        if self.needs_recalculation or not hasattr(self, 'nodes_info') or not self.nodes_info:
+            self.calculate_layout(root_node)
+            
+        # 清除表面
+        surface.fill(self.colors['background'])
+        
+        # 渲染连接线
+        self._render_connections(surface, root_node)
+        
+        # 渲染节点
+        self._render_nodes(surface, root_node, active_node)
+        
+        # 渲染树结构信息
+        self._render_tree_info(surface, root_node)
+        
+    def _render_tree_info(self, surface, root_node):
+        """渲染树结构信息"""
+        y = 10
+        
+        # 显示树结构信息标题
+        info_title = "行为树结构" if self.chinese_support else "Tree Structure"
+        if self.chinese_support:
+            title_surface = self.font.render(info_title, True, self.colors['text'])
+        else:
+            title_font = pygame.font.SysFont('Arial', 16, bold=True)
+            title_surface = title_font.render(info_title, True, self.colors['text'])
+            
+        surface.blit(title_surface, (10, y))
+        y += 25
+        
+        # 计算行为树统计信息
+        node_count = self._count_nodes(root_node)
+        depth = self._calculate_tree_depth(root_node)
+        
+        # 显示统计信息
+        info_lines = [
+            f"{'节点数量' if self.chinese_support else 'Node Count'}: {node_count}",
+            f"{'树深度' if self.chinese_support else 'Tree Depth'}: {depth}"
+        ]
+        
+        for line in info_lines:
+            info_surface = self.info_font.render(line, True, self.colors['text'])
+            surface.blit(info_surface, (10, y))
+            y += 20
+    
+    def _count_nodes(self, node):
+        """计算树中的节点数量"""
+        if not node:
+            return 0
+            
+        count = 1  # 当前节点
+        
+        if hasattr(node, 'children') and node.children:
+            for child in node.children:
+                count += self._count_nodes(child)
+                
+        return count
+    
+    def _calculate_tree_depth(self, node, current_depth=1):
+        """计算树的深度"""
+        if not node or not hasattr(node, 'children') or not node.children:
+            return current_depth
+            
+        child_depths = [self._calculate_tree_depth(child, current_depth + 1) 
+                       for child in node.children]
+        return max(child_depths) if child_depths else current_depth
+        
+    def _render_connections(self, surface, node):
+        """渲染节点之间的连接线"""
+        if not hasattr(node, 'children') or not node.children:
+            return
+        
+        # 确保节点在布局信息中
+        if node not in self.nodes_info:
+            return
+            
+        node_info = self.nodes_info[node]
+        parent_x = node_info['center_x']
+        parent_y = node_info['center_y']
+        
+        # 计算所有子节点的垂直线终点的Y坐标
+        vertical_end_y = 0
+        for child in node.children:
+            if child in self.nodes_info:
+                child_info = self.nodes_info[child]
+                vertical_end_y = max(vertical_end_y, child_info['y'] - 15)  # 垂直线向下延伸，留一些间距
+                
+        if vertical_end_y > 0 and len(node.children) > 1:
+            # 先绘制从父节点向下的垂直线段
+            pygame.draw.line(
+                surface,
+                self.colors['connection'],
+                (parent_x, parent_y),
+                (parent_x, vertical_end_y),
+                3  # 增加线宽
+            )
+        
+        for child in node.children:
+            # 确保子节点在布局信息中
+            if child not in self.nodes_info:
+                continue
+                
+            child_info = self.nodes_info[child]
+            child_x = child_info['center_x']
+            child_y = child_info['y']
+            
+            if len(node.children) > 1:
+                # 对于多个子节点，绘制水平线段连接垂直线和子节点垂直线
+                pygame.draw.line(
+                    surface,
+                    self.colors['connection'],
+                    (parent_x, vertical_end_y),
+                    (child_x, vertical_end_y),
+                    3  # 增加线宽
+                )
+                
+                # 然后绘制从水平线到子节点的垂直线段
+                pygame.draw.line(
+                    surface,
+                    self.colors['connection'],
+                    (child_x, vertical_end_y),
+                    (child_x, child_y),
+                    3  # 增加线宽
+                )
+            else:
+                # 对于单个子节点，直接绘制从父节点到子节点的连接线
+                pygame.draw.line(
+                    surface,
+                    self.colors['connection'],
+                    (parent_x, parent_y),
+                    (child_x, child_y),
+                    3  # 增加线宽
+                )
+            
+            # 递归处理子节点
+            self._render_connections(surface, child)
+            
+    def _render_nodes(self, surface, node, active_node=None):
+        """渲染节点"""
+        if node not in self.nodes_info:
+            return
+            
+        node_info = self.nodes_info[node]
+        x, y = node_info['x'], node_info['y']
+        width, height = node_info['width'], node_info['height']
+        
+        # 确定是否是活动节点 - 不仅检查当前节点，还要递归查找到叶节点
+        is_active_node = False
+        if active_node is not None:
+            is_active_node = node == active_node
+            
+            # 如果当前节点是sleep_node且猫处于sleeping状态，强制高亮
+            if hasattr(node, 'name') and node.name == "sleep" and hasattr(node, 'cat'):
+                if node.cat.state == "sleeping":
+                    is_active_node = True
+            
+            # 同样对于其他叶节点也检查对应状态
+            if hasattr(node, 'name') and hasattr(node, 'cat'):
+                if node.name == "play" and node.cat.state == "playing":
+                    is_active_node = True
+                elif node.name == "wander" and node.cat.state == "wandering":
+                    is_active_node = True
+        
+        # 根据节点类型确定基础颜色
+        base_color = self.colors['inactive']  # 默认为灰色
+        if node.__class__.__name__ == 'Sequence':
+            base_color = self.colors['sequence']
+        elif node.__class__.__name__ == 'Selector':
+            base_color = self.colors['selector']
+            
+        # 确定节点颜色 - 根据用户要求修改颜色逻辑
+        if is_active_node:
+            # 当前活动节点使用特定颜色高亮显示
+            if hasattr(node, 'status'):
+                if node.status == NodeStatus.RUNNING:
+                    color = self.colors['running']
+                elif node.status == NodeStatus.SUCCESS:
+                    color = self.colors['success']
+                elif node.status == NodeStatus.FAILURE:
+                    color = self.colors['failure']
+                else:
+                    color = self.colors['active']
+            else:
+                color = self.colors['active']
+        else:
+            # 非活动节点使用基础颜色
+            color = base_color
+        
+        # 根据节点类型绘制不同形状的节点
+        if node.__class__.__name__ == 'Sequence' or node.__class__.__name__ == 'Selector':
+            # 复合节点使用圆角矩形
+            pygame.draw.rect(surface, color, (x, y, width, height), 0, border_radius=15)
+            pygame.draw.rect(surface, self.colors['text'], (x, y, width, height), 2, border_radius=15)
+        else:
+            # 叶节点使用矩形
+            pygame.draw.rect(surface, color, (x, y, width, height))
+            pygame.draw.rect(surface, self.colors['text'], (x, y, width, height), 2)
+        
+        # 绘制节点名称
+        name = node.name if hasattr(node, 'name') else node.__class__.__name__
+        
+        # 根据中文支持情况选择字体渲染方式
+        try:
+            if self.chinese_support:
+                # 对于中文名称，不需要太多截断
+                if len(name) > 12:
+                    name = name[:10] + ".."
+                text = self.font.render(name, True, self.colors['text'])
+            else:
+                # 如果不支持中文，使用简化的英文替代
+                if name == "观察并检索周围物品":
+                    name = "Observe Items"
+                elif name == "随机等待":
+                    name = "Random Wait"
+                elif name == "移动到目标点":
+                    name = "Move to Target"
+                elif name == "互动":
+                    name = "Interact"
+                elif name == "观望等待":
+                    name = "Observe & Wait"
+                elif name == "探索":
+                    name = "Explore"
+                
+                # 节点名称过长时截断
+                if len(name) > 10:
+                    name = name[:8] + ".."
+                
+                text = pygame.font.SysFont('Arial', self.font_size).render(name, True, self.colors['text'])
+                
+            text_rect = text.get_rect(center=(x + width//2, y + height//2))
+            surface.blit(text, text_rect)
+        except Exception as e:
+            print(f"节点名称渲染错误 '{name}': {e}")
+            # 错误情况下，回退到简单的文本渲染
+            fallback_name = name[:8] + ".." if len(name) > 10 else name
+            fallback_text = pygame.font.SysFont('Arial', self.font_size).render(
+                fallback_name, True, self.colors['text'])
+            fallback_rect = fallback_text.get_rect(center=(x + width//2, y + height//2))
+            surface.blit(fallback_text, fallback_rect)
+        
+        # 递归渲染子节点
+        if hasattr(node, 'children') and node.children:
+            for child in node.children:
+                if child in self.nodes_info:  # 确保子节点在布局信息中
+                    self._render_nodes(surface, child, active_node)
+                
+    def find_active_nodes(self, node):
+        """查找当前活动的节点（状态为RUNNING的节点）"""
+        active_nodes = []
+        
+        # 添加当前节点如果它是RUNNING状态
+        if hasattr(node, 'status') and node.status == NodeStatus.RUNNING:
+            active_nodes.append(node)
+            
+        # 检查是否为复合节点，如果是则递归查找
+        if hasattr(node, 'children') and node.children:
+            # 首先检查和添加复合节点本身
+            if hasattr(node, 'status') and node.status == NodeStatus.RUNNING:
+                if node not in active_nodes:  # 避免重复添加
+                    active_nodes.append(node)
+            
+            # 对于Sequence和Selector，找到当前正在执行的子节点
+            if hasattr(node, 'current_child') and 0 <= node.current_child < len(node.children):
+                active_child = node.children[node.current_child]
+                
+                # 如果当前子节点处于RUNNING状态，添加它及其所有父节点
+                if hasattr(active_child, 'status') and active_child.status == NodeStatus.RUNNING:
+                    active_nodes.append(active_child)
+                
+                # 递归搜索当前活动子节点
+                active_nodes.extend(self.find_active_nodes(active_child))
+            
+            # 对于其他类型的节点或者确保全面检查，遍历所有子节点
+            else:
+                for child in node.children:
+                    if hasattr(child, 'status') and child.status == NodeStatus.RUNNING:
+                        active_nodes.append(child)
+                    active_nodes.extend(self.find_active_nodes(child))
+        
+        # 确保没有重复节点
+        unique_active_nodes = []
+        for n in active_nodes:
+            if n not in unique_active_nodes:
+                unique_active_nodes.append(n)
+                
+        return unique_active_nodes 
