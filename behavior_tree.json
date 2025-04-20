@@ -1,0 +1,67 @@
+{
+  "name": "BehaviorTree",
+  "type": "Root",
+  "children": [
+    {
+      "name": "Sequence",
+      "type": "Sequence",
+      "children": [
+        {
+          "name": "观察并检索周围物品",
+          "type": "ObserveItems",
+          "params": [
+            0.9158622996289045
+          ]
+        },
+        {
+          "name": "随机等待",
+          "type": "RandomWait",
+          "params": [
+            2.5864573062009315
+          ]
+        },
+        {
+          "name": "Selector",
+          "type": "Selector",
+          "children": [
+            {
+              "name": "Sequence",
+              "type": "Sequence",
+              "children": [
+                {
+                  "name": "移动到目标点",
+                  "type": "MoveToTarget"
+                },
+                {
+                  "name": "互动",
+                  "type": "Interact"
+                }
+              ]
+            },
+            {
+              "name": "Sequence",
+              "type": "Sequence",
+              "children": [
+                {
+                  "name": "观望等待",
+                  "type": "ObserveAndWait",
+                  "params": [
+                    3.7243194256651617
+                  ]
+                },
+                {
+                  "name": "探索",
+                  "type": "Explore"
+                },
+                {
+                  "name": "互动",
+                  "type": "Interact"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

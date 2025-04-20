@@ -54,6 +54,11 @@ class Game:
         # 记录当前活动节点
         self.active_node = None
         
+        # 记录被点击的节点和时间
+        self.clicked_node = None
+        self.clicked_node_time = 0
+        self.clicked_node_display_time = 5000  # 显示5秒
+        
         # 命令历史记录
         self.command_history = []
         self.max_history = 5
@@ -169,6 +174,11 @@ class Game:
                         elif command == "fullscreen":
                             # 切换全屏/窗口模式
                             self.toggle_fullscreen()
+                        elif command == "json":
+                            # 使用新的导出方法生成简化的行为树JSON
+                            json_data = self.cat.export_behavior_tree("behavior_tree.json")
+                            print("行为树JSON结构:")
+                            print(json_data)
                         else:
                             # 添加到命令历史
                             self.add_to_history(command)
@@ -181,10 +191,6 @@ class Game:
                 elif event.key == pygame.K_BACKSPACE:
                     self.command_buffer = self.command_buffer[:-1]
                     
-                elif event.key == pygame.K_h:
-                    # 切换帮助显示
-                    self.show_help = not self.show_help
-                
                 elif event.key == pygame.K_F11 or event.key == pygame.K_f:
                     # 切换全屏/窗口模式
                     self.toggle_fullscreen()
@@ -192,6 +198,28 @@ class Game:
                 else:
                     if len(self.command_buffer) < 20:  # Limit command length
                         self.command_buffer += event.unicode
+            
+            # 处理鼠标点击事件            
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                if event.button == 1:  # 左键点击
+                    mouse_x, mouse_y = event.pos
+                    
+                    # 检查是否点击在行为树区域内
+                    if self.tree_area.collidepoint(mouse_x, mouse_y):
+                        # 转换为行为树表面的坐标
+                        tree_x = mouse_x - self.tree_area.x
+                        tree_y = mouse_y - self.tree_area.y
+                        
+                        # 处理点击事件
+                        clicked_node = self.tree_visualizer.handle_click(
+                            tree_x, tree_y, self.cat.root, self.cat)
+                        
+                        if clicked_node:
+                            print(f"点击了节点: {clicked_node.name}")
+                            
+                            # 在信息区域显示点击的节点信息
+                            self.clicked_node = clicked_node
+                            self.clicked_node_time = pygame.time.get_ticks()  # 记录点击时间，用于临时显示
     
     def add_to_history(self, command):
         """添加命令到历史记录"""
@@ -347,6 +375,29 @@ class Game:
                     self.info_surface.blit(active_surface, (20, y_offset))
                     y_offset += line_height
                 
+                # 如果有被点击的节点且在显示时间内，显示节点信息
+                current_time = pygame.time.get_ticks()
+                if self.clicked_node and (current_time - self.clicked_node_time < self.clicked_node_display_time):
+                    # 显示点击节点信息
+                    clicked_text = f"点击节点: {self.clicked_node.name}"
+                    clicked_surface = chinese_font.render(clicked_text, True, self.colors['command'])
+                    self.info_surface.blit(clicked_surface, (20, y_offset))
+                    y_offset += line_height
+                    
+                    # 显示节点类型
+                    node_type = self.clicked_node.__class__.__name__
+                    type_text = f"节点类型: {node_type}"
+                    type_surface = chinese_font.render(type_text, True, self.colors['command'])
+                    self.info_surface.blit(type_surface, (20, y_offset))
+                    y_offset += line_height
+                    
+                    # 如果是复合节点，显示子节点数量
+                    if hasattr(self.clicked_node, 'children') and self.clicked_node.children:
+                        children_text = f"子节点数量: {len(self.clicked_node.children)}"
+                        children_surface = chinese_font.render(children_text, True, self.colors['command'])
+                        self.info_surface.blit(children_surface, (20, y_offset))
+                        y_offset += line_height
+                
                 # 显示行为倾向
                 y_offset += 10
                 behavior_title = chinese_font.render("行为倾向:", True, self.colors['highlight'])
@@ -403,6 +454,29 @@ class Game:
                 active_surface = self.info_font.render(active_text, True, self.colors['success'])
                 self.info_surface.blit(active_surface, (20, y_offset))
                 y_offset += line_height
+            
+            # 如果有被点击的节点且在显示时间内，显示节点信息
+            current_time = pygame.time.get_ticks()
+            if self.clicked_node and (current_time - self.clicked_node_time < self.clicked_node_display_time):
+                # 显示点击节点信息
+                clicked_text = f"Clicked Node: {self.clicked_node.name}"
+                clicked_surface = self.info_font.render(clicked_text, True, self.colors['command'])
+                self.info_surface.blit(clicked_surface, (20, y_offset))
+                y_offset += line_height
+                
+                # 显示节点类型
+                node_type = self.clicked_node.__class__.__name__
+                type_text = f"Node Type: {node_type}"
+                type_surface = self.info_font.render(type_text, True, self.colors['command'])
+                self.info_surface.blit(type_surface, (20, y_offset))
+                y_offset += line_height
+                
+                # 如果是复合节点，显示子节点数量
+                if hasattr(self.clicked_node, 'children') and self.clicked_node.children:
+                    children_text = f"Children Count: {len(self.clicked_node.children)}"
+                    children_surface = self.info_font.render(children_text, True, self.colors['command'])
+                    self.info_surface.blit(children_surface, (20, y_offset))
+                    y_offset += line_height
                 
             # 显示行为倾向
             y_offset += 10
@@ -462,7 +536,8 @@ class Game:
             ("interact", "互动" if self.chinese_support else "Interact"),
             ("observe", "观察" if self.chinese_support else "Observe"),
             ("debug", "切换调试模式" if self.chinese_support else "Toggle debug"),
-            ("fullscreen", "切换全屏模式" if self.chinese_support else "Toggle fullscreen")
+            ("fullscreen", "切换全屏模式" if self.chinese_support else "Toggle fullscreen"),
+            ("json", "保存行为树JSON结构" if self.chinese_support else "Save behavior tree JSON")
         ]
         
         line_height = 18

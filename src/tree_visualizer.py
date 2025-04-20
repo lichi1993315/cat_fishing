@@ -166,6 +166,59 @@ class TreeVisualizer:
         # 渲染树结构信息
         self._render_tree_info(surface, root_node)
         
+    def handle_click(self, x, y, root_node, cat_instance=None):
+        """处理点击事件，检查是否点击到节点，如果是则返回该节点"""
+        if not hasattr(self, 'nodes_info') or not self.nodes_info:
+            return None
+            
+        # 查找被点击的节点
+        clicked_node = None
+        for node, info in self.nodes_info.items():
+            node_rect = pygame.Rect(info['x'], info['y'], info['width'], info['height'])
+            if node_rect.collidepoint(x, y):
+                clicked_node = node
+                break
+                
+        if clicked_node and cat_instance:
+            # 如果提供了猫实例，则显示点击节点的JSON结构
+            try:
+                # 使用简化的JSON格式
+                node_json = cat_instance.behavior_tree_to_json(clicked_node)
+                print(f"\n点击节点: {clicked_node.name}")
+                print(node_json)
+                
+                # 打印节点路径（从根节点到点击节点）
+                node_path = self._find_node_path(root_node, clicked_node)
+                if node_path:
+                    path_str = " -> ".join([n.name for n in node_path])
+                    print(f"节点路径: {path_str}")
+            except Exception as e:
+                print(f"无法生成节点JSON: {e}")
+                
+        return clicked_node
+        
+    def _find_node_path(self, root, target, current_path=None):
+        """查找从根节点到目标节点的路径"""
+        if current_path is None:
+            current_path = []
+            
+        # 添加当前节点到路径
+        path = current_path + [root]
+        
+        # 如果找到目标节点，返回路径
+        if root == target:
+            return path
+            
+        # 递归检查子节点
+        if hasattr(root, 'children') and root.children:
+            for child in root.children:
+                result = self._find_node_path(child, target, path)
+                if result:
+                    return result
+                    
+        # 没有找到目标节点
+        return None
+        
     def _render_tree_info(self, surface, root_node):
         """渲染树结构信息"""
         y = 10

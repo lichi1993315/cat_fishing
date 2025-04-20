@@ -1,3 +1,5 @@
+import json
+
 from behavior_tree.node import NodeStatus
 from behavior_tree.composite import Sequence, Selector
 from behavior_tree.actions import (
@@ -196,3 +198,126 @@ class Cat:
             
         # 创建新的行为树
         self.create_behavior_tree() 
+    
+    def behavior_tree_to_json(self, node=None, include_status=False):
+        """
+        将行为树结构转换为JSON格式
+        
+        参数:
+            node: 要转换的节点，默认为根节点
+            include_status: 是否包含节点运行状态
+            
+        返回:
+            行为树的JSON字符串
+        """
+        if node is None:
+            node = self.root
+            
+        # 将节点信息保存为字典
+        def node_to_dict(n):
+            node_info = {
+                "name": n.name if hasattr(n, "name") else n.__class__.__name__,
+                "type": n.__class__.__name__
+            }
+            
+            # 添加参数信息
+            params = []
+            
+            # 根据节点类型添加不同的参数
+            if isinstance(n, Sleep) and hasattr(n, "sleep_duration"):
+                params = [n.sleep_duration]
+            elif isinstance(n, Wander) and hasattr(n, "move_cooldown"):
+                params = [n.move_cooldown]
+            elif isinstance(n, Play) and hasattr(n, "play_duration"):
+                params = [n.play_duration]
+            elif isinstance(n, RandomWait) and hasattr(n, "wait_duration"):
+                params = [n.wait_duration]
+            elif isinstance(n, ObserveItems) and hasattr(n, "observe_duration"):
+                params = [n.observe_duration]
+            elif isinstance(n, ObserveAndWait) and hasattr(n, "observe_duration"):
+                params = [n.observe_duration]
+            
+            # 只有当有参数时才添加params字段
+            if params:
+                node_info["params"] = params
+            
+            # 添加状态信息（如果需要）
+            if include_status and hasattr(n, "status"):
+                node_info["status"] = n.status.value
+            
+            # 处理子节点
+            if hasattr(n, "children") and n.children:
+                node_info["children"] = [node_to_dict(child) for child in n.children]
+            
+            return node_info
+        
+        # 转换根节点
+        tree_dict = node_to_dict(node)
+        
+        # 返回格式化的JSON字符串
+        return json.dumps(tree_dict, indent=2, ensure_ascii=False)
+    
+    def get_behavior_tree_structure(self, include_status=False):
+        """
+        获取行为树的结构信息
+        
+        参数:
+            include_status: 是否包含节点运行状态
+            
+        返回:
+            包含所有关键行为树结构的字典
+        """
+        # 按照模板格式创建根节点信息
+        tree_structures = {
+            "root": json.loads(self.behavior_tree_to_json(self.root, include_status))
+        }
+        
+        # 添加标准行为树
+        if hasattr(self, "standard_behavior"):
+            tree_structures["standard_behavior"] = json.loads(
+                self.behavior_tree_to_json(self.standard_behavior, include_status))
+        
+        # 返回简化的结构
+        return tree_structures
+    
+    def export_behavior_tree(self, filename="behavior_tree.json", include_status=False):
+        """
+        导出完整行为树结构到单个JSON文件
+        
+        参数:
+            filename: 输出文件名
+            include_status: 是否包含节点运行状态
+            
+        返回:
+            包含行为树结构的JSON字符串
+        """
+        # 创建完整行为树结构
+        behavior_tree = {
+            "name": "BehaviorTree",
+            "type": "Root",
+            "children": [json.loads(self.behavior_tree_to_json(self.root, include_status))]
+        }
+        
+        # 如果需要保存到文件
+        if filename:
+            with open(filename, "w", encoding="utf-8") as f:
+                json.dump(behavior_tree, f, indent=2, ensure_ascii=False)
+            print(f"行为树已导出到 {filename}")
+        
+        # 返回JSON字符串
+        return json.dumps(behavior_tree, indent=2, ensure_ascii=False)
+    
+    def save_behavior_tree_to_file(self, filename="behavior_tree.json", include_status=False):
+        """
+        将行为树结构保存到文件
+        
+        参数:
+            filename: 输出文件名
+            include_status: 是否包含节点运行状态
+        """
+        tree_structures = self.get_behavior_tree_structure(include_status)
+        
+        with open(filename, "w", encoding="utf-8") as f:
+            json.dump(tree_structures, f, indent=2, ensure_ascii=False)
+            
+        return f"行为树结构已保存到 {filename}" 
