@@ -1,9 +1,13 @@
 import pygame
 import sys
+import json
 from renderer import ASCIIRenderer
 from cat import Cat
 from tree_visualizer import TreeVisualizer
 from util import get_font, debug_fonts
+
+# Import the behavior tree generation function
+from test_claude_tooluse import generate_behavior_tree
 
 class Game:
     def __init__(self):
@@ -76,6 +80,12 @@ class Game:
             'failure': (224, 108, 117),
             'command': (190, 132, 255)
         }
+        
+        # 预定义的命令列表
+        self.predefined_commands = [
+            "default", "sleep", "play", "wander", "explore", "interact", 
+            "observe", "debug", "fullscreen", "json"
+        ]
         
     def _create_screen(self):
         """创建屏幕（全屏或窗口模式）"""
@@ -179,13 +189,17 @@ class Game:
                             json_data = self.cat.export_behavior_tree("behavior_tree.json")
                             print("行为树JSON结构:")
                             print(json_data)
-                        else:
+                        elif command in self.predefined_commands:
                             # 添加到命令历史
                             self.add_to_history(command)
                             # 修改猫的行为
                             self.cat.modify_behavior(command)
                             # 强制行为树可视化器重新计算布局
                             self.tree_visualizer.needs_recalculation = True
+                        else:
+                            # 处理自然语言命令
+                            self.process_natural_language_command(command)
+                            
                         self.command_buffer = ""
                         
                 elif event.key == pygame.K_BACKSPACE:
@@ -220,6 +234,44 @@ class Game:
                             # 在信息区域显示点击的节点信息
                             self.clicked_node = clicked_node
                             self.clicked_node_time = pygame.time.get_ticks()  # 记录点击时间，用于临时显示
+    
+    def process_natural_language_command(self, command):
+        """处理自然语言命令，生成行为树"""
+        self.add_to_history(command)
+        
+        print(f"处理自然语言命令: {command}")
+        
+        try:
+            # 使用Claude生成行为树JSON
+            behavior_tree_json = generate_behavior_tree(command)
+            
+            if behavior_tree_json:
+                print("生成的行为树JSON:")
+                print(behavior_tree_json)
+                
+                # 将JSON字符串转换为Python对象
+                tree_data = json.loads(behavior_tree_json)
+                
+                # 从behavior_tree.json格式提取structure部分
+                if "structure" in tree_data:
+                    # 保存为临时文件并应用
+                    with open("behavior_tree_temp.json", "w", encoding="utf-8") as f:
+                        json.dump(tree_data["structure"], f, ensure_ascii=False, indent=2)
+                    
+                    # 使用猫的方法加载这个行为树
+                    self.cat.load_behavior_tree("behavior_tree_temp.json")
+                    
+                    # 强制行为树可视化器重新计算布局
+                    self.tree_visualizer.needs_recalculation = True
+                    
+                    print("成功应用新的行为树")
+                else:
+                    print("生成的JSON格式不正确，缺少structure字段")
+            else:
+                print("无法生成行为树JSON")
+                
+        except Exception as e:
+            print(f"处理自然语言命令时出错: {e}")
     
     def add_to_history(self, command):
         """添加命令到历史记录"""
@@ -517,12 +569,33 @@ class Game:
                 chinese_font = get_font(False, 18)
                 help_title = chinese_font.render("可用命令:", True, self.colors['highlight'])
                 self.info_surface.blit(help_title, (x_offset, y_offset))
+                
+                # 添加自然语言说明
+                nl_help = chinese_font.render("也可以直接输入自然语言描述:", True, self.colors['success'])
+                self.info_surface.blit(nl_help, (x_offset, y_offset + 240))
+                
+                nl_example = chinese_font.render("例如: 一只饥饿的猫，会寻找食物", True, self.colors['text'])
+                self.info_surface.blit(nl_example, (x_offset, y_offset + 265))
             except:
                 help_title = self.info_font.render("Commands:", True, self.colors['highlight'])
                 self.info_surface.blit(help_title, (x_offset, y_offset))
+                
+                # 添加自然语言说明（英文）
+                nl_help = self.info_font.render("Or type natural language:", True, self.colors['success'])
+                self.info_surface.blit(nl_help, (x_offset, y_offset + 240))
+                
+                nl_example = self.info_font.render("Example: A hungry cat looking for food", True, self.colors['text'])
+                self.info_surface.blit(nl_example, (x_offset, y_offset + 265))
         else:
             help_title = self.info_font.render("Commands:", True, self.colors['highlight'])
             self.info_surface.blit(help_title, (x_offset, y_offset))
+            
+            # 添加自然语言说明（英文）
+            nl_help = self.info_font.render("Or type natural language:", True, self.colors['success'])
+            self.info_surface.blit(nl_help, (x_offset, y_offset + 240))
+            
+            nl_example = self.info_font.render("Example: A hungry cat looking for food", True, self.colors['text'])
+            self.info_surface.blit(nl_example, (x_offset, y_offset + 265))
             
         y_offset += 25
         
