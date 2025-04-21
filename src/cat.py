@@ -321,3 +321,131 @@ class Cat:
             json.dump(tree_structures, f, indent=2, ensure_ascii=False)
             
         return f"行为树结构已保存到 {filename}" 
+    
+    def load_behavior_tree(self, filename):
+        """
+        从JSON文件加载行为树结构并应用到当前猫咪
+        
+        参数:
+            filename: 行为树JSON文件路径
+            
+        返回:
+            成功加载的消息
+        """
+        try:
+            with open(filename, "r", encoding="utf-8") as f:
+                tree_data = json.load(f)
+                
+            # 重置当前行为树节点
+            self.setup_behavior_tree()
+            
+            # 从JSON创建新的行为树
+            if isinstance(tree_data, dict):
+                # 判断是否为根节点格式
+                if "type" in tree_data and tree_data["type"] == "Root":
+                    # 如果是根节点，直接提取其children
+                    if "children" in tree_data and len(tree_data["children"]) > 0:
+                        tree_data = tree_data["children"][0]
+                
+                # 递归构建行为树
+                self.root = self._build_node_from_json(tree_data)
+                
+                return f"成功从 {filename} 加载行为树"
+            else:
+                raise ValueError("Invalid JSON structure for behavior tree")
+        except Exception as e:
+            print(f"加载行为树时出错: {e}")
+            # 确保在出错时仍然有一个有效的行为树
+            self.setup_behavior_tree()
+            raise e
+    
+    def _build_node_from_json(self, node_data):
+        """
+        从JSON数据递归构建行为树节点
+        
+        参数:
+            node_data: 节点JSON数据
+            
+        返回:
+            构建的行为树节点
+        """
+        from behavior_tree.composite import Sequence, Selector
+        from behavior_tree.actions import (
+            Sleep, Wander, Play, ObserveItems, RandomWait,
+            MoveToTarget, Interact, ObserveAndWait, Explore
+        )
+        
+        # 获取节点类型和名称
+        node_type = node_data.get("type")
+        node_name = node_data.get("name", node_type)
+        
+        # 根据节点类型创建相应的节点
+        if node_type == "Sequence":
+            node = Sequence(node_name, [])
+        elif node_type == "Selector":
+            node = Selector(node_name, [])
+        elif node_type == "CustomAction":
+            # 根据名称创建相应的动作节点
+            action_name = node_data.get("name")
+            if action_name == "Sleep":
+                # Sleep类只接受name和cat两个参数
+                node = Sleep(action_name, self)
+                # 如果有sleep_duration参数，在对象创建后设置
+                if "params" in node_data and node_data["params"]:
+                    node.sleep_duration = node_data["params"][0]
+            elif action_name == "Wander":
+                params = node_data.get("params", [0.5])
+                node = Wander(action_name, self)
+                if params:
+                    node.move_cooldown = params[0]
+            elif action_name == "Play":
+                params = node_data.get("params", [1.0])
+                node = Play(action_name, self)
+                if params:
+                    node.play_duration = params[0]
+            elif action_name == "AgentPatrol":
+                node = Wander(action_name, self)
+            elif action_name == "AgentDestination":
+                node = MoveToTarget(action_name, self)
+            elif action_name == "Eat" or action_name == "Talk" or action_name == "Work":
+                node = Interact(action_name, self)
+            elif action_name == "ObserveItems":
+                node = ObserveItems(action_name, self)
+            elif action_name == "RandomWait" or action_name == "WaitTime":
+                params = node_data.get("params", [1.0])
+                node = RandomWait(action_name, self)
+                if params:
+                    node.wait_duration = params[0]
+            elif action_name == "Explore":
+                node = Explore(action_name, self)
+            else:
+                # 默认为交互节点
+                node = Interact(action_name, self)
+        elif node_type == "CustomCondition":
+            # 这里简化处理，将条件节点转换为相应的动作
+            condition_name = node_data.get("name")
+            if condition_name == "IsTired":
+                # 如果是疲倦条件，创建休息相关行为
+                node = Sleep("IsTired", self)
+                # 设置较长的睡眠时间
+                node.sleep_duration = 1.0
+            elif condition_name == "IsHungry":
+                # 如果是饥饿条件，创建进食相关行为
+                node = Interact("Eat", self)
+            elif condition_name == "IsBored":
+                # 如果是无聊条件，创建玩耍相关行为
+                node = Play("Play", self)
+            else:
+                # 其他条件默认为观察行为
+                node = ObserveItems("Observe", self)
+        else:
+            # 未知节点类型，默认为序列节点
+            node = Sequence(node_name, [])
+        
+        # 如果有子节点，递归处理
+        if "children" in node_data and isinstance(node_data["children"], list) and hasattr(node, "children"):
+            for child_data in node_data["children"]:
+                child_node = self._build_node_from_json(child_data)
+                node.children.append(child_node)
+                
+        return node 

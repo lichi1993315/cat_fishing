@@ -1,0 +1,43 @@
+{
+  "name": "BehaviorTree",
+  "type": "Root",
+  "children": [
+    {
+      "type": "Selector",
+      "name": "Selector",
+      "children": [
+        {
+          "name": "Sequence",
+          "type": "Sequence",
+          "children": [
+            {
+              "type": "CustomCondition",
+              "name": "IsTired"
+            },
+            {
+              "type": "CustomAction",
+              "name": "Sleep",
+              "params": [
+                0.9
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Sequence",
+          "type": "Sequence",
+          "children": [
+            {
+              "type": "CustomCondition",
+              "name": "IsBored"
+            },
+            {
+              "type": "CustomAction",
+              "name": "Play"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

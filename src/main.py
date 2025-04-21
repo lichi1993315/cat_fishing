@@ -12,16 +12,20 @@ from test_claude_tooluse import generate_behavior_tree
 class Game:
     def __init__(self):
         # 调整窗口大小以适应行为树可视化
-        self.width = 80
+        self.width = 70
         self.height = 24
         self.screen_width = 1280
         self.screen_height = 720
         
+        # 保存初始/默认窗口大小
+        self.windowed_width = self.screen_width
+        self.windowed_height = self.screen_height
+        
         # 创建自定义的屏幕
         pygame.init()
         
-        # 全屏模式设置
-        self.fullscreen = True  # 默认启用全屏
+        # 全屏模式设置 - 默认启用窗口模式以允许用户调整大小
+        self.fullscreen = False
         self.screen = self._create_screen()
         pygame.display.set_caption("ASCII Cat Game - 行为树演示")
         
@@ -33,8 +37,12 @@ class Game:
         self.tree_surface = pygame.Surface((self.tree_area.width, self.tree_area.height))
         self.info_surface = pygame.Surface((self.info_area.width, self.info_area.height))
         
-        # 调整ASCIIRenderer创建方式
-        renderer_cell_size = 16  # 减小字符大小以适应新布局
+        # 计算渲染器单元格大小
+        base_width = 1280
+        scale_factor = self.screen_width / base_width
+        renderer_cell_size = max(int(19 * scale_factor), 14)
+        
+        # 创建ASCIIRenderer
         self.renderer = ASCIIRenderer(self.width, self.height, renderer_cell_size)
         self.renderer.screen = self.game_surface  # 指定渲染到游戏区域表面
         
@@ -45,6 +53,11 @@ class Game:
         self.clock = pygame.time.Clock()
         self.show_help = True
         self.debug_mode = False
+        
+        # 文本光标相关
+        self.cursor_visible = True
+        self.cursor_blink_time = 0
+        self.cursor_blink_rate = 500  # 光标闪烁频率（毫秒）
         
         # 创建行为树可视化器
         self.tree_visualizer = TreeVisualizer(
@@ -99,36 +112,138 @@ class Game:
                 pygame.FULLSCREEN
             )
         else:
-            # 窗口模式
-            return pygame.display.set_mode((self.screen_width, self.screen_height))
+            # 窗口模式，允许调整窗口大小
+            return pygame.display.set_mode(
+                (self.screen_width, self.screen_height),
+                pygame.RESIZABLE  # 添加可调整大小标志
+            )
             
     def update_layout(self):
         """根据屏幕大小更新布局"""
-        # 根据屏幕大小计算比例
+        # 上半部分放行为树，下半部分放游戏视图和信息
+        self.tree_area = pygame.Rect(
+            int(self.screen_width * 0.02),
+            int(self.screen_height * 0.03),
+            int(self.screen_width * 0.96),
+            int(self.screen_height * 0.45)
+        )
+        
+        # 游戏视图放在左下角
         self.game_area = pygame.Rect(
             int(self.screen_width * 0.02),
-            int(self.screen_height * 0.03), 
-            int(self.screen_width * 0.5), 
-            int(self.screen_height * 0.65)
+            int(self.screen_height * 0.51),
+            int(self.screen_width * 0.63),
+            int(self.screen_height * 0.46)
         )
         
-        self.tree_area = pygame.Rect(
-            int(self.screen_width * 0.54),
-            int(self.screen_height * 0.03),
-            int(self.screen_width * 0.44),
-            int(self.screen_height * 0.94)
-        )
-        
+        # 信息区域放在右下角
         self.info_area = pygame.Rect(
-            int(self.screen_width * 0.02),
-            int(self.screen_height * 0.7),
-            int(self.screen_width * 0.5),
-            int(self.screen_height * 0.27)
+            int(self.screen_width * 0.67),
+            int(self.screen_height * 0.51),
+            int(self.screen_width * 0.31),
+            int(self.screen_height * 0.46)
         )
         
+        # 根据窗口大小调整字体大小
+        self._update_font_sizes()
+        
+    def _update_font_sizes(self):
+        """根据窗口大小动态调整字体大小"""
+        # 计算基于窗口大小的缩放因子
+        base_width = 1280
+        base_height = 720
+        width_factor = self.screen_width / base_width
+        height_factor = self.screen_height / base_height
+        scale_factor = min(width_factor, height_factor)
+        
+        # 设置动态字体大小
+        title_size = max(int(26 * scale_factor), 18)
+        info_size = max(int(18 * scale_factor), 14)
+        chinese_size = max(int(22 * scale_factor), 16)
+        
+        # 更新字体
+        self.title_font = pygame.font.SysFont('Arial', title_size, bold=True)
+        self.info_font = pygame.font.SysFont('Arial', info_size)
+        
+        # 更新中文字体
+        try:
+            new_chinese_font = get_font(False, chinese_size)
+            if self.chinese_support:
+                new_chinese_font.render("测试", True, (255, 255, 255))
+                self.chinese_font = new_chinese_font
+        except:
+            pass
+        
+        # 调整渲染器单元格大小
+        if hasattr(self, 'renderer'):
+            cell_size = max(int(19 * scale_factor), 14)
+            self.renderer.cell_size = cell_size
+        
+    def handle_resize(self, size):
+        """处理窗口大小调整事件"""
+        if not self.fullscreen:  # 全屏模式下不处理调整大小
+            # 设置最小窗口尺寸，防止窗口过小导致UI问题
+            min_width = 800
+            min_height = 600
+            
+            # 确保新尺寸不小于最小限制
+            new_width = max(size[0], min_width)
+            new_height = max(size[1], min_height)
+            
+            # 如果尺寸被限制了，重新设置窗口大小
+            if new_width != size[0] or new_height != size[1]:
+                size = (new_width, new_height)
+                self.screen = pygame.display.set_mode(
+                    size,
+                    pygame.RESIZABLE
+                )
+            
+            self.screen_width, self.screen_height = size
+            
+            # 保存当前窗口尺寸，用于从全屏切换回窗口时恢复
+            self.windowed_width = self.screen_width
+            self.windowed_height = self.screen_height
+            
+            # 更新布局
+            self.update_layout()
+            
+            # 重新创建子表面
+            self.game_surface = pygame.Surface((self.game_area.width, self.game_area.height))
+            self.tree_surface = pygame.Surface((self.tree_area.width, self.tree_area.height))
+            self.info_surface = pygame.Surface((self.info_area.width, self.info_area.height))
+            
+            # 计算渲染器单元格大小
+            base_width = 1280
+            scale_factor = self.screen_width / base_width
+            cell_size = max(int(19 * scale_factor), 14)
+            
+            # 重新创建渲染器或更新现有渲染器
+            if hasattr(self, 'renderer'):
+                # 如果单元格大小变化过大，完全重新创建渲染器，否则只更新属性
+                if abs(self.renderer.cell_size - cell_size) > 2:
+                    self.renderer = ASCIIRenderer(self.width, self.height, cell_size)
+                    self.renderer.screen = self.game_surface
+                else:
+                    self.renderer.cell_size = cell_size
+                    self.renderer.screen = self.game_surface
+            
+            # 更新行为树可视化器
+            self.tree_visualizer.screen_width = self.tree_area.width
+            self.tree_visualizer.screen_height = self.tree_area.height
+            self.tree_visualizer.needs_recalculation = True
+            
     def toggle_fullscreen(self):
         """切换全屏/窗口模式"""
         self.fullscreen = not self.fullscreen
+        
+        # 保存当前窗口大小以便从全屏切换回窗口时恢复
+        if self.fullscreen:
+            self.windowed_width = self.screen_width
+            self.windowed_height = self.screen_height
+        else:
+            # 从全屏切换到窗口时，使用合理的窗口尺寸
+            self.screen_width = self.windowed_width if hasattr(self, 'windowed_width') else 1280
+            self.screen_height = self.windowed_height if hasattr(self, 'windowed_height') else 720
         
         # 重新创建屏幕
         self.screen = self._create_screen()
@@ -154,27 +269,49 @@ class Game:
         # 打印系统可用字体信息，有助于调试
         debug_fonts()
         
-        # 字体大小设置
-        self.title_font = pygame.font.SysFont('Arial', 24, bold=True)
+        # 初始化字体大小（会在_update_font_sizes中根据窗口大小动态调整）
+        self.title_font = pygame.font.SysFont('Arial', 26, bold=True)
         self.info_font = pygame.font.SysFont('Arial', 18)
         
         # 测试中文渲染 - 如果系统找不到合适的中文字体，则使用fallback方案
-        chinese_font = get_font(False, 20)
+        chinese_font = get_font(False, 22)  # 初始中文字体大小
         try:
             chinese_font.render("测试中文渲染", True, (255, 255, 255))
             self.chinese_support = True
+            self.chinese_font = chinese_font  # 保存中文字体引用
         except:
             print("警告: 中文渲染测试失败，将使用备用方案")
             self.chinese_support = False
+            
+        # 根据窗口大小更新字体
+        self._update_font_sizes()
         
     def handle_input(self):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
+            
+            # 处理窗口大小调整事件
+            elif event.type == pygame.VIDEORESIZE:
+                self.handle_resize(event.size)
                 
             elif event.type == pygame.KEYDOWN:
+                # 重置光标状态 - 确保在键盘输入时光标立即可见
+                self.cursor_visible = True
+                self.cursor_blink_time = pygame.time.get_ticks()
+                
                 if event.key == pygame.K_ESCAPE:
                     self.running = False
+                    
+                elif event.key == pygame.K_r and pygame.key.get_mods() & pygame.KMOD_CTRL:
+                    # Ctrl+R: 重置窗口到默认大小
+                    if not self.fullscreen:
+                        default_size = (1280, 720)
+                        self.screen = pygame.display.set_mode(
+                            default_size,
+                            pygame.RESIZABLE
+                        )
+                        self.handle_resize(default_size)
                     
                 elif event.key == pygame.K_RETURN:
                     if self.command_buffer:
@@ -306,6 +443,12 @@ class Game:
         # 设置活动节点
         self.active_node = active_nodes[0] if active_nodes else None
         
+        # 更新光标闪烁
+        current_time = pygame.time.get_ticks()
+        if current_time - self.cursor_blink_time > self.cursor_blink_rate:
+            self.cursor_visible = not self.cursor_visible
+            self.cursor_blink_time = current_time
+        
     def render(self):
         # 清除主屏幕
         self.screen.fill(self.colors['background'])
@@ -315,24 +458,24 @@ class Game:
         self.tree_surface.fill(self.colors['panel_bg'])
         self.info_surface.fill(self.colors['panel_bg'])
         
+        # 绘制行为树区域 (先渲染行为树，因为它在上方)
+        self.render_tree_view()
+        
         # 绘制游戏区域
         self.render_game_view()
-        
-        # 绘制行为树区域
-        self.render_tree_view()
         
         # 绘制信息区域
         self.render_info_view()
         
         # 将子表面绘制到主屏幕上
-        self.screen.blit(self.game_surface, self.game_area)
         self.screen.blit(self.tree_surface, self.tree_area)
+        self.screen.blit(self.game_surface, self.game_area)
         self.screen.blit(self.info_surface, self.info_area)
         
         # 绘制区域边框和标题
-        self.draw_panel(self.game_area, "游戏视图")
-        self.draw_panel(self.tree_area, "行为树可视化")
-        self.draw_panel(self.info_area, "状态与信息")
+        self.draw_panel(self.tree_area, "行为树可视化 (上方)")
+        self.draw_panel(self.game_area, "游戏视图 (左下)")
+        self.draw_panel(self.info_area, "状态与信息 (右下)")
         
         # 更新屏幕
         pygame.display.flip()
@@ -375,13 +518,53 @@ class Game:
         cat_char = self.cat.get_display_char()
         self.renderer.draw_char(self.cat.x, self.cat.y, cat_char, self.get_state_color())
         
-        # 绘制命令行
-        self.renderer.draw_text(0, self.height - 2, f"> {self.command_buffer}")
+        # 创建明显的命令输入区域
+        input_y = self.height - 10
+        
+        # 绘制命令输入框边框 - 使用双线边框增强可见性
+        border_color = (130, 180, 255)  # 更亮的蓝色边框
+        for x in range(self.width):
+            self.renderer.draw_char(x, input_y - 1, "═", border_color)  # 上边框，使用双线
+            self.renderer.draw_char(x, input_y + 1, "═", border_color)  # 下边框，使用双线
+        self.renderer.draw_char(0, input_y - 1, "╔", border_color)
+        self.renderer.draw_char(0, input_y, "║", border_color)
+        self.renderer.draw_char(0, input_y + 1, "╚", border_color)
+        self.renderer.draw_char(self.width - 1, input_y - 1, "╗", border_color)
+        self.renderer.draw_char(self.width - 1, input_y, "║", border_color)
+        self.renderer.draw_char(self.width - 1, input_y + 1, "╝", border_color)
+        
+        # 清空输入区背景并用点填充来突出显示输入区
+        bg_color = (120, 120, 160)  # 使用灰紫色作为输入区指示
+        for x in range(1, self.width - 1):
+            if x % 2 == 0:  # 每隔一个字符画一个点，形成点状背景
+                self.renderer.draw_char(x, input_y, "·", bg_color)
+            else:
+                self.renderer.draw_char(x, input_y, " ", bg_color)
+        
+        # 绘制命令行提示符和文本
+        input_prefix = "输入命令 ➤ " if self.chinese_support else "Command ➤ "  # 使用箭头增强可见性
+        text_color = (255, 255, 255)  # 使用白色文字提高可读性
+        self.renderer.draw_text(2, input_y, f"{input_prefix}{self.command_buffer}", text_color)
+        
+        # 绘制光标
+        if self.cursor_visible:
+            # 计算光标位置：前缀长度 + 当前输入文本长度 + 2（边距）
+            prefix_len = len(input_prefix)
+            cursor_pos = 2 + prefix_len + len(self.command_buffer)
+            # 绘制闪烁的光标
+            cursor_color = (255, 255, 0)  # 明亮的黄色光标
+            self.renderer.draw_char(cursor_pos, input_y, "█", cursor_color)
+            
+        # 绘制命令历史标题
+        history_title = "最近命令:" if self.chinese_support else "Recent commands:"
+        title_color = (190, 132, 255)  # 使用紫色突出显示标题
+        self.renderer.draw_text(2, input_y - 3, history_title, title_color)
         
         # 绘制命令历史
+        history_color = (180, 180, 200)
         for i, cmd in enumerate(self.command_history[:3]):
             line = f"[{i+1}] {cmd}"
-            self.renderer.draw_text(0, self.height - 5 + i, line, (150, 150, 150))
+            self.renderer.draw_text(2, input_y - 5 + i, line, history_color)
         
         # 更新渲染器
         self.renderer.update()
@@ -473,6 +656,17 @@ class Game:
                                     (150, y_offset + 5, bar_width, 10))
                     
                     y_offset += line_height
+                
+                # 添加窗口调整提示
+                resize_help = chinese_font.render("✓ 可以自由调整窗口大小", True, self.colors['success'])
+                self.info_surface.blit(resize_help, (20, y_offset + 290))
+                
+                # 添加快捷键提示
+                shortcut_help = chinese_font.render("Ctrl+R: 重置窗口大小", True, self.colors['text'])
+                self.info_surface.blit(shortcut_help, (20, y_offset + 315))
+                
+                fullscreen_help = chinese_font.render("F11/F: 切换全屏模式", True, self.colors['text'])
+                self.info_surface.blit(fullscreen_help, (20, y_offset + 340))
                 
             except Exception as e:
                 print(f"中文渲染错误: {e}")
@@ -576,6 +770,18 @@ class Game:
                 
                 nl_example = chinese_font.render("例如: 一只饥饿的猫，会寻找食物", True, self.colors['text'])
                 self.info_surface.blit(nl_example, (x_offset, y_offset + 265))
+                
+                # 添加窗口调整提示
+                resize_help = chinese_font.render("✓ 可以自由调整窗口大小", True, self.colors['success'])
+                self.info_surface.blit(resize_help, (x_offset, y_offset + 290))
+                
+                # 添加快捷键提示
+                shortcut_help = chinese_font.render("Ctrl+R: 重置窗口大小", True, self.colors['text'])
+                self.info_surface.blit(shortcut_help, (x_offset, y_offset + 315))
+                
+                fullscreen_help = chinese_font.render("F11/F: 切换全屏模式", True, self.colors['text'])
+                self.info_surface.blit(fullscreen_help, (x_offset, y_offset + 340))
+                
             except:
                 help_title = self.info_font.render("Commands:", True, self.colors['highlight'])
                 self.info_surface.blit(help_title, (x_offset, y_offset))
@@ -586,6 +792,17 @@ class Game:
                 
                 nl_example = self.info_font.render("Example: A hungry cat looking for food", True, self.colors['text'])
                 self.info_surface.blit(nl_example, (x_offset, y_offset + 265))
+                
+                # 添加窗口调整提示（英文）
+                resize_help = self.info_font.render("✓ Window is freely resizable", True, self.colors['success'])
+                self.info_surface.blit(resize_help, (x_offset, y_offset + 290))
+                
+                # 添加快捷键提示（英文）
+                shortcut_help = self.info_font.render("Ctrl+R: Reset window size", True, self.colors['text'])
+                self.info_surface.blit(shortcut_help, (x_offset, y_offset + 315))
+                
+                fullscreen_help = self.info_font.render("F11/F: Toggle fullscreen", True, self.colors['text'])
+                self.info_surface.blit(fullscreen_help, (x_offset, y_offset + 340))
         else:
             help_title = self.info_font.render("Commands:", True, self.colors['highlight'])
             self.info_surface.blit(help_title, (x_offset, y_offset))
@@ -596,6 +813,17 @@ class Game:
             
             nl_example = self.info_font.render("Example: A hungry cat looking for food", True, self.colors['text'])
             self.info_surface.blit(nl_example, (x_offset, y_offset + 265))
+            
+            # 添加窗口调整提示（英文）
+            resize_help = self.info_font.render("✓ Window is freely resizable", True, self.colors['success'])
+            self.info_surface.blit(resize_help, (x_offset, y_offset + 290))
+            
+            # 添加快捷键提示（英文）
+            shortcut_help = self.info_font.render("Ctrl+R: Reset window size", True, self.colors['text'])
+            self.info_surface.blit(shortcut_help, (x_offset, y_offset + 315))
+            
+            fullscreen_help = self.info_font.render("F11/F: Toggle fullscreen", True, self.colors['text'])
+            self.info_surface.blit(fullscreen_help, (x_offset, y_offset + 340))
             
         y_offset += 25
         

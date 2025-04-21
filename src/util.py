@@ -137,9 +137,7 @@ def debug_fonts():
     try:
         fonts = pygame.font.get_fonts()
         print(f"系统字体总数: {len(fonts)}")
-        print("系统可用字体列表:")
-        for i, font in enumerate(sorted(fonts)):
-            print(f"{i+1}. {font}")
+        
     except Exception as e:
         print(f"无法获取系统字体列表: {e}")
 

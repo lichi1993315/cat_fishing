@@ -8,27 +8,28 @@ class TreeVisualizer:
     def __init__(self, screen_width, screen_height):
         self.screen_width = screen_width
         self.screen_height = screen_height
-        self.node_width = 140  # 增加节点宽度以容纳中文
-        self.node_height = 40
-        self.horizontal_spacing = 30
-        self.vertical_spacing = 80  # 增加垂直间距
+        self.node_width = 160  # 减小基础节点宽度
+        self.node_height = 36  # 减小节点高度
+        self.horizontal_spacing = 40  # 减小水平间距
+        self.vertical_spacing = 70  # 减小垂直间距
+        self.scale_factor = 1.0  # 添加缩放因子
         
         # 测试中文字体支持
         self.init_fonts()
         
         # 样式和颜色
         self.colors = {
-            'background': (30, 30, 30),  # 深灰色背景
-            'node': (150, 150, 150),  # 中灰色节点
-            'sequence': (100, 180, 100),  # 浅绿色序列节点
-            'selector': (180, 100, 100),  # 浅红色选择器节点
-            'active': (0, 200, 0),  # 翠绿色活动节点
-            'inactive': (150, 150, 150),  # 中灰色非活动节点
-            'running': (0, 200, 0),  # 翠绿色运行状态
-            'success': (0, 200, 0),  # 翠绿色成功状态
-            'failure': (200, 0, 0),  # 鲜红色失败状态
-            'connection': (255, 255, 255),  # 纯白色连接线
-            'text': (255, 255, 255)  # 纯白色文字
+            'background': (30, 30, 40),  # 稍微调整背景色，使其更暗一点
+            'node': (70, 70, 80),  # 深灰色节点背景
+            'sequence': (80, 160, 80),  # 绿色序列节点
+            'selector': (160, 80, 80),  # 红色选择器节点
+            'active': (100, 200, 100),  # 明亮的绿色活动节点
+            'inactive': (70, 70, 80),  # 深灰色非活动节点
+            'running': (100, 190, 100),  # 绿色运行状态
+            'success': (100, 200, 100),  # 绿色成功状态
+            'failure': (200, 80, 80),  # 红色失败状态
+            'connection': (200, 200, 200),  # 亮灰色连接线
+            'text': (240, 240, 240)  # 更亮的白色文字，增加对比度
         }
         
         # 初始化变量
@@ -37,7 +38,7 @@ class TreeVisualizer:
         
     def init_fonts(self):
         """初始化字体并测试中文支持"""
-        self.font_size = 16  # 增加字体大小
+        self.font_size = 14  # 减小字体大小以适应更多文本
         
         # 尝试加载中文字体
         try:
@@ -87,37 +88,82 @@ class TreeVisualizer:
         available_width = self.screen_width
         self._assign_positions(root_node, 0, available_width, 0)
         
+        # 计算树的总高度和宽度
+        max_width = 0
+        max_height = 0
+        for info in self.nodes_info.values():
+            max_width = max(max_width, info['x'] + info['width'])
+            max_height = max(max_height, info['y'] + info['height'])
+            
+        # 计算缩放因子，确保树完全适应屏幕
+        # 留出小边距以避免贴边显示
+        width_scale = (self.screen_width - 20) / max(max_width, 1)
+        height_scale = (self.screen_height - 40) / max(max_height, 1)
+        
+        # 使用较小的缩放因子，确保在两个维度上都适应
+        self.scale_factor = min(width_scale, height_scale, 1.0)  # 不超过1.0以避免过大
+        
+        # 如果缩放因子小于1，应用缩放
+        if self.scale_factor < 1.0:
+            self._apply_scaling()
+        
         # 计算树哈希值，用于检测变化
         self.last_tree_hash = self.tree_hash(root_node)
         self.needs_recalculation = False
         
         return self.nodes_info
         
+    def _apply_scaling(self):
+        """应用缩放因子到所有节点"""
+        for node, info in self.nodes_info.items():
+            # 缩放节点位置和大小
+            info['x'] = int(info['x'] * self.scale_factor)
+            info['y'] = int(info['y'] * self.scale_factor)
+            info['width'] = int(info['width'] * self.scale_factor)
+            info['height'] = int(info['height'] * self.scale_factor)
+            info['center_x'] = int(info['center_x'] * self.scale_factor)
+            info['center_y'] = int(info['center_y'] * self.scale_factor)
+        
     def _calculate_subtree_width(self, node):
         """计算节点及其子树的宽度"""
         if not hasattr(node, 'children') or not node.children:
-            # 叶子节点
-            node.subtree_width = self.node_width
-            return self.node_width
+            # 叶子节点宽度
+            min_width = self.node_width + self.horizontal_spacing // 2  # 给叶子节点额外空间
+            node.subtree_width = min_width
+            return min_width
             
         # 计算所有子节点的总宽度
         total_width = 0
+        
+        # 优化：如果子节点太多，考虑压缩宽度
+        compression_factor = 1.0
+        if len(node.children) > 3:
+            compression_factor = 0.9  # 适当压缩过多子节点的间距
+            
         for child in node.children:
             child_width = self._calculate_subtree_width(child)
-            total_width += child_width + self.horizontal_spacing
+            # 给每个子节点添加额外的间距，防止节点过于拥挤
+            total_width += child_width * compression_factor + self.horizontal_spacing * compression_factor
             
         # 减去最后一个节点之后的额外间距
         if total_width > 0:
-            total_width -= self.horizontal_spacing
+            total_width -= self.horizontal_spacing * compression_factor
             
-        # 节点宽度至少要等于自己的宽度
-        node.subtree_width = max(total_width, self.node_width)
+        # 节点宽度至少要等于自己的宽度，或者比子节点总宽度稍大
+        min_node_width = self.node_width + self.horizontal_spacing  # 给节点本身留出额外空间
+        
+        # 如果只有一个子节点，确保父节点比子节点宽
+        if len(node.children) == 1:
+            min_node_width = max(min_node_width, node.children[0].subtree_width + self.horizontal_spacing // 2)
+            
+        node.subtree_width = max(total_width, min_node_width)
         return node.subtree_width
         
     def _assign_positions(self, node, x_start, x_end, level):
         """为节点分配位置"""
         x_center = (x_start + x_end) // 2
-        y = level * (self.node_height + self.vertical_spacing) + 50
+        # 增加起始垂直位置，并根据层级计算节点位置
+        y = level * (self.node_height + self.vertical_spacing) + 60
         
         # 保存节点信息
         self.nodes_info[node] = {
@@ -134,14 +180,20 @@ class TreeVisualizer:
             available_width = x_end - x_start
             current_x = x_start
             
+            # 如果子节点总宽度小于可用宽度，则在每个子节点之间添加额外的间距
+            total_subtree_width = sum(child.subtree_width for child in node.children)
+            extra_spacing = 0
+            
+            if total_subtree_width < available_width:
+                extra_spacing = (available_width - total_subtree_width) / max(1, len(node.children) - 1)
+            
             for child in node.children:
-                # 计算子节点所需宽度占比
-                child_ratio = child.subtree_width / node.subtree_width
-                child_width = int(available_width * child_ratio)
+                # 计算子节点所需宽度占比，同时考虑额外间距
+                child_width = child.subtree_width
                 
                 # 为子节点分配位置
                 self._assign_positions(child, current_x, current_x + child_width, level + 1)
-                current_x += child_width
+                current_x += child_width + self.horizontal_spacing + extra_spacing
         
     def render(self, surface, root_node, active_node=None):
         """渲染行为树"""
@@ -153,6 +205,18 @@ class TreeVisualizer:
         # 确保节点布局已计算
         if self.needs_recalculation or not hasattr(self, 'nodes_info') or not self.nodes_info:
             self.calculate_layout(root_node)
+            
+        # 根据缩放因子更新字体大小
+        if self.scale_factor < 1.0:
+            scaled_font_size = max(int(self.font_size * (0.8 + self.scale_factor * 0.2)), 10)
+            try:
+                if self.chinese_support:
+                    self.font = get_font(False, scaled_font_size)
+                else:
+                    self.font = pygame.font.SysFont('Arial', scaled_font_size)
+                self.info_font = self.font
+            except Exception as e:
+                print(f"调整字体大小失败: {e}")
             
         # 清除表面
         surface.fill(self.colors['background'])
@@ -222,6 +286,12 @@ class TreeVisualizer:
     def _render_tree_info(self, surface, root_node):
         """渲染树结构信息"""
         y = 10
+        x = 10
+        
+        # 计算缩放后应调整的位置信息
+        if self.scale_factor < 1.0:
+            # 小型化信息并移到右上角以节省空间
+            x = self.screen_width - 150
         
         # 显示树结构信息标题
         info_title = "行为树结构" if self.chinese_support else "Tree Structure"
@@ -231,12 +301,20 @@ class TreeVisualizer:
             title_font = pygame.font.SysFont('Arial', 16, bold=True)
             title_surface = title_font.render(info_title, True, self.colors['text'])
             
-        surface.blit(title_surface, (10, y))
+        surface.blit(title_surface, (x, y))
         y += 25
         
         # 计算行为树统计信息
         node_count = self._count_nodes(root_node)
         depth = self._calculate_tree_depth(root_node)
+        
+        # 在缩放因子较小时简化显示信息
+        if self.scale_factor < 0.7:
+            # 简化显示，仅显示节点数
+            info_text = f"N:{node_count} D:{depth}"
+            info_surface = self.info_font.render(info_text, True, self.colors['text'])
+            surface.blit(info_surface, (x, y))
+            return
         
         # 显示统计信息
         info_lines = [
@@ -246,7 +324,7 @@ class TreeVisualizer:
         
         for line in info_lines:
             info_surface = self.info_font.render(line, True, self.colors['text'])
-            surface.blit(info_surface, (10, y))
+            surface.blit(info_surface, (x, y))
             y += 20
     
     def _count_nodes(self, node):
@@ -284,12 +362,15 @@ class TreeVisualizer:
         parent_x = node_info['center_x']
         parent_y = node_info['center_y']
         
+        # 根据缩放因子调整线宽
+        line_width = 3 if self.scale_factor > 0.85 else 2
+        
         # 计算所有子节点的垂直线终点的Y坐标
         vertical_end_y = 0
         for child in node.children:
             if child in self.nodes_info:
                 child_info = self.nodes_info[child]
-                vertical_end_y = max(vertical_end_y, child_info['y'] - 15)  # 垂直线向下延伸，留一些间距
+                vertical_end_y = max(vertical_end_y, child_info['y'] - 15 * self.scale_factor)  # 垂直线向下延伸，留一些间距
                 
         if vertical_end_y > 0 and len(node.children) > 1:
             # 先绘制从父节点向下的垂直线段
@@ -298,7 +379,7 @@ class TreeVisualizer:
                 self.colors['connection'],
                 (parent_x, parent_y),
                 (parent_x, vertical_end_y),
-                3  # 增加线宽
+                line_width
             )
         
         for child in node.children:
@@ -317,7 +398,7 @@ class TreeVisualizer:
                     self.colors['connection'],
                     (parent_x, vertical_end_y),
                     (child_x, vertical_end_y),
-                    3  # 增加线宽
+                    line_width
                 )
                 
                 # 然后绘制从水平线到子节点的垂直线段
@@ -326,7 +407,7 @@ class TreeVisualizer:
                     self.colors['connection'],
                     (child_x, vertical_end_y),
                     (child_x, child_y),
-                    3  # 增加线宽
+                    line_width
                 )
             else:
                 # 对于单个子节点，直接绘制从父节点到子节点的连接线
@@ -335,7 +416,7 @@ class TreeVisualizer:
                     self.colors['connection'],
                     (parent_x, parent_y),
                     (child_x, child_y),
-                    3  # 增加线宽
+                    line_width
                 )
             
             # 递归处理子节点
@@ -407,11 +488,42 @@ class TreeVisualizer:
         
         # 根据中文支持情况选择字体渲染方式
         try:
+            # 根据缩放因子确定字符长度限制
+            max_chars = 14
+            if self.scale_factor < 0.85:
+                max_chars = int(max_chars * self.scale_factor * 1.2)
+                
             if self.chinese_support:
-                # 对于中文名称，不需要太多截断
-                if len(name) > 12:
-                    name = name[:10] + ".."
-                text = self.font.render(name, True, self.colors['text'])
+                # 对于中文名称，截断较长的名称
+                if len(name) > max_chars:
+                    name = name[:max_chars-2] + ".."
+                    
+                # 检查名称是否包含过长的单词，根据缩放因子决定是否换行
+                if len(name) > 7 and " " in name and self.scale_factor > 0.7:
+                    # 尝试在空格处添加换行符
+                    words = name.split(" ")
+                    name = "\n".join([" ".join(words[:len(words)//2]), 
+                                     " ".join(words[len(words)//2:])])
+                    
+                # 如果有换行符，分行渲染
+                if "\n" in name:
+                    lines = name.split("\n")
+                    line_height = self.font.get_height()
+                    # 渲染第一行
+                    text1 = self.font.render(lines[0], True, self.colors['text'])
+                    text1_rect = text1.get_rect(centerx=x + width//2, 
+                                              centery=y + height//2 - line_height//2)
+                    surface.blit(text1, text1_rect)
+                    # 渲染第二行
+                    text2 = self.font.render(lines[1], True, self.colors['text'])
+                    text2_rect = text2.get_rect(centerx=x + width//2, 
+                                              centery=y + height//2 + line_height//2)
+                    surface.blit(text2, text2_rect)
+                else:
+                    # 单行渲染
+                    text = self.font.render(name, True, self.colors['text'])
+                    text_rect = text.get_rect(center=(x + width//2, y + height//2))
+                    surface.blit(text, text_rect)
             else:
                 # 如果不支持中文，使用简化的英文替代
                 if name == "观察并检索周围物品":
@@ -428,13 +540,12 @@ class TreeVisualizer:
                     name = "Explore"
                 
                 # 节点名称过长时截断
-                if len(name) > 10:
-                    name = name[:8] + ".."
+                if len(name) > max_chars:
+                    name = name[:max_chars-2] + ".."
                 
                 text = pygame.font.SysFont('Arial', self.font_size).render(name, True, self.colors['text'])
-                
-            text_rect = text.get_rect(center=(x + width//2, y + height//2))
-            surface.blit(text, text_rect)
+                text_rect = text.get_rect(center=(x + width//2, y + height//2))
+                surface.blit(text, text_rect)
         except Exception as e:
             print(f"节点名称渲染错误 '{name}': {e}")
             # 错误情况下，回退到简单的文本渲染

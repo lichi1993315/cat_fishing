@@ -58,6 +58,28 @@ python src/main.py
       - 探索
       - 互动
 
+## 行为树生成
+系统支持使用两种AI提供商来根据自然语言指令生成行为树：
+
+### Claude AI
+默认使用Anthropic的Claude 3.7 Sonnet模型生成行为树。需要在`.env`文件中设置：
+```
+ANTHROPIC_API_KEY=your_anthropic_api_key_here
+```
+
+### Azure OpenAI
+也支持使用Azure OpenAI服务生成行为树。需要在`.env`文件中设置：
+```
+AZURE_OPENAI_API_KEY=your_azure_openai_api_key_here
+AZURE_OPENAI_ENDPOINT=https://your-resource-name.openai.azure.com/
+AZURE_OPENAI_DEPLOYMENT_NAME=your_deployment_name_here
+```
+
+要使用Azure OpenAI进行行为树生成，可以在代码中指定provider参数：
+```python
+result = generate_behavior_tree(instruction, provider="azure")
+```
+
 ## 命令列表
 你可以通过输入以下命令来修改猫的行为:
 - "default": 恢复默认行为树
